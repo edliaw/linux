@@ -3038,6 +3038,7 @@ TEST(syscall_restart)
 	};
 #if defined(__arm__)
 	struct utsname utsbuf;
+	int arm_version;
 #endif
 
 	ASSERT_EQ(0, pipe(pipefd));
@@ -3153,12 +3154,12 @@ TEST(syscall_restart)
 	ret = get_syscall(_metadata, child_pid);
 #if defined(__arm__)
 	/*
-	 * FIXME:
 	 * - native ARM registers do NOT expose true syscall.
 	 * - compat ARM registers on ARM64 DO expose true syscall.
 	 */
 	ASSERT_EQ(0, uname(&utsbuf));
-	if (strncmp(utsbuf.machine, "arm", 3) == 0) {
+	if (sscanf(utsbuf.machine, "armv%d", &arm_version) == 1 &&
+	    arm_version < 8) {
 		EXPECT_EQ(__NR_nanosleep, ret);
 	} else
 #endif
