@@ -4,4 +4,5 @@ LDFLAGS += -lpthread
 LDLIBS += -lcap
 
 TEST_GEN_PROGS := seccomp_bpf seccomp_benchmark
+seccomp_bpf: seccomp_api.c
 include ../lib.mk

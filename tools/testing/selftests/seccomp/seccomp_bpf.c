@@ -54,6 +54,7 @@
 
 #include "../kselftest_harness.h"
 #include "../clone3/clone3_selftests.h"
+#include "seccomp_api.h"
 
 /* Attempt to de-conflict with the selftests tree. */
 #ifndef SKIP
@@ -62,223 +63,6 @@
 
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 
-#ifndef PR_SET_PTRACER
-# define PR_SET_PTRACER 0x59616d61
-#endif
-
-#ifndef PR_SET_NO_NEW_PRIVS
-#define PR_SET_NO_NEW_PRIVS 38
-#define PR_GET_NO_NEW_PRIVS 39
-#endif
-
-#ifndef PR_SECCOMP_EXT
-#define PR_SECCOMP_EXT 43
-#endif
-
-#ifndef SECCOMP_EXT_ACT
-#define SECCOMP_EXT_ACT 1
-#endif
-
-#ifndef SECCOMP_EXT_ACT_TSYNC
-#define SECCOMP_EXT_ACT_TSYNC 1
-#endif
-
-#ifndef SECCOMP_MODE_STRICT
-#define SECCOMP_MODE_STRICT 1
-#endif
-
-#ifndef SECCOMP_MODE_FILTER
-#define SECCOMP_MODE_FILTER 2
-#endif
-
-#ifndef SECCOMP_RET_ALLOW
-struct seccomp_data {
-	int nr;
-	__u32 arch;
-	__u64 instruction_pointer;
-	__u64 args[6];
-};
-#endif
-
-#ifndef SECCOMP_RET_KILL_PROCESS
-#define SECCOMP_RET_KILL_PROCESS 0x80000000U /* kill the process */
-#define SECCOMP_RET_KILL_THREAD	 0x00000000U /* kill the thread */
-#endif
-#ifndef SECCOMP_RET_KILL
-#define SECCOMP_RET_KILL	 SECCOMP_RET_KILL_THREAD
-#define SECCOMP_RET_TRAP	 0x00030000U /* disallow and force a SIGSYS */
-#define SECCOMP_RET_ERRNO	 0x00050000U /* returns an errno */
-#define SECCOMP_RET_TRACE	 0x7ff00000U /* pass to a tracer or disallow */
-#define SECCOMP_RET_ALLOW	 0x7fff0000U /* allow */
-#endif
-#ifndef SECCOMP_RET_LOG
-#define SECCOMP_RET_LOG		 0x7ffc0000U /* allow after logging */
-#endif
-
-#ifndef __NR_seccomp
-# if defined(__i386__)
-#  define __NR_seccomp 354
-# elif defined(__x86_64__)
-#  define __NR_seccomp 317
-# elif defined(__arm__)
-#  define __NR_seccomp 383
-# elif defined(__aarch64__)
-#  define __NR_seccomp 277
-# elif defined(__riscv)
-#  define __NR_seccomp 277
-# elif defined(__csky__)
-#  define __NR_seccomp 277
-# elif defined(__loongarch__)
-#  define __NR_seccomp 277
-# elif defined(__hppa__)
-#  define __NR_seccomp 338
-# elif defined(__powerpc__)
-#  define __NR_seccomp 358
-# elif defined(__s390__)
-#  define __NR_seccomp 348
-# elif defined(__xtensa__)
-#  define __NR_seccomp 337
-# elif defined(__sh__)
-#  define __NR_seccomp 372
-# elif defined(__mc68000__)
-#  define __NR_seccomp 380
-# else
-#  warning "seccomp syscall number unknown for this architecture"
-#  define __NR_seccomp 0xffff
-# endif
-#endif
-
-#ifndef SECCOMP_SET_MODE_STRICT
-#define SECCOMP_SET_MODE_STRICT 0
-#endif
-
-#ifndef SECCOMP_SET_MODE_FILTER
-#define SECCOMP_SET_MODE_FILTER 1
-#endif
-
-#ifndef SECCOMP_GET_ACTION_AVAIL
-#define SECCOMP_GET_ACTION_AVAIL 2
-#endif
-
-#ifndef SECCOMP_GET_NOTIF_SIZES
-#define SECCOMP_GET_NOTIF_SIZES 3
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_TSYNC
-#define SECCOMP_FILTER_FLAG_TSYNC (1UL << 0)
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_LOG
-#define SECCOMP_FILTER_FLAG_LOG (1UL << 1)
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_SPEC_ALLOW
-#define SECCOMP_FILTER_FLAG_SPEC_ALLOW (1UL << 2)
-#endif
-
-#ifndef PTRACE_SECCOMP_GET_METADATA
-#define PTRACE_SECCOMP_GET_METADATA	0x420d
-
-struct seccomp_metadata {
-	__u64 filter_off;       /* Input: which filter */
-	__u64 flags;             /* Output: filter's flags */
-};
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_NEW_LISTENER
-#define SECCOMP_FILTER_FLAG_NEW_LISTENER	(1UL << 3)
-#endif
-
-#ifndef SECCOMP_RET_USER_NOTIF
-#define SECCOMP_RET_USER_NOTIF 0x7fc00000U
-
-#define SECCOMP_IOC_MAGIC		'!'
-#define SECCOMP_IO(nr)			_IO(SECCOMP_IOC_MAGIC, nr)
-#define SECCOMP_IOR(nr, type)		_IOR(SECCOMP_IOC_MAGIC, nr, type)
-#define SECCOMP_IOW(nr, type)		_IOW(SECCOMP_IOC_MAGIC, nr, type)
-#define SECCOMP_IOWR(nr, type)		_IOWR(SECCOMP_IOC_MAGIC, nr, type)
-
-/* Flags for seccomp notification fd ioctl. */
-#define SECCOMP_IOCTL_NOTIF_RECV	SECCOMP_IOWR(0, struct seccomp_notif)
-#define SECCOMP_IOCTL_NOTIF_SEND	SECCOMP_IOWR(1,	\
-						struct seccomp_notif_resp)
-#define SECCOMP_IOCTL_NOTIF_ID_VALID	SECCOMP_IOW(2, __u64)
-
-struct seccomp_notif {
-	__u64 id;
-	__u32 pid;
-	__u32 flags;
-	struct seccomp_data data;
-};
-
-struct seccomp_notif_resp {
-	__u64 id;
-	__s64 val;
-	__s32 error;
-	__u32 flags;
-};
-
-struct seccomp_notif_sizes {
-	__u16 seccomp_notif;
-	__u16 seccomp_notif_resp;
-	__u16 seccomp_data;
-};
-#endif
-
-#ifndef SECCOMP_IOCTL_NOTIF_ADDFD
-/* On success, the return value is the remote process's added fd number */
-#define SECCOMP_IOCTL_NOTIF_ADDFD	SECCOMP_IOW(3,	\
-						struct seccomp_notif_addfd)
-
-/* valid flags for seccomp_notif_addfd */
-#define SECCOMP_ADDFD_FLAG_SETFD	(1UL << 0) /* Specify remote fd */
-
-struct seccomp_notif_addfd {
-	__u64 id;
-	__u32 flags;
-	__u32 srcfd;
-	__u32 newfd;
-	__u32 newfd_flags;
-};
-#endif
-
-#ifndef SECCOMP_ADDFD_FLAG_SEND
-#define SECCOMP_ADDFD_FLAG_SEND	(1UL << 1) /* Addfd and return it, atomically */
-#endif
-
-struct seccomp_notif_addfd_small {
-	__u64 id;
-	char weird[4];
-};
-#define SECCOMP_IOCTL_NOTIF_ADDFD_SMALL	\
-	SECCOMP_IOW(3, struct seccomp_notif_addfd_small)
-
-struct seccomp_notif_addfd_big {
-	union {
-		struct seccomp_notif_addfd addfd;
-		char buf[sizeof(struct seccomp_notif_addfd) + 8];
-	};
-};
-#define SECCOMP_IOCTL_NOTIF_ADDFD_BIG	\
-	SECCOMP_IOWR(3, struct seccomp_notif_addfd_big)
-
-#ifndef PTRACE_EVENTMSG_SYSCALL_ENTRY
-#define PTRACE_EVENTMSG_SYSCALL_ENTRY	1
-#define PTRACE_EVENTMSG_SYSCALL_EXIT	2
-#endif
-
-#ifndef SECCOMP_USER_NOTIF_FLAG_CONTINUE
-#define SECCOMP_USER_NOTIF_FLAG_CONTINUE 0x00000001
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_TSYNC_ESRCH
-#define SECCOMP_FILTER_FLAG_TSYNC_ESRCH (1UL << 4)
-#endif
-
-#ifndef SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV
-#define SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV (1UL << 5)
-#endif
-
 #ifndef seccomp
 int seccomp(unsigned int op, unsigned int flags, void *args)
 {
@@ -286,18 +70,6 @@ int seccomp(unsigned int op, unsigned int flags, void *args)
 	return syscall(__NR_seccomp, op, flags, args);
 }
 #endif
-
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define syscall_arg(_n) (offsetof(struct seccomp_data, args[_n]))
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define syscall_arg(_n) (offsetof(struct seccomp_data, args[_n]) + sizeof(__u32))
-#else
-#error "wut? Unknown __BYTE_ORDER__?!"
-#endif
-
-#define SIBLING_EXIT_UNKILLED	0xbadbeef
-#define SIBLING_EXIT_FAILURE	0xbadface
-#define SIBLING_EXIT_NEWPRIVS	0xbadfeed
 
 static int __filecmp(pid_t pid1, pid_t pid2, int fd1, int fd2)
 {
@@ -322,6 +94,11 @@ static int __filecmp(pid_t pid1, pid_t pid2, int fd1, int fd2)
 		}					\
 	}						\
 	_ret; })
+
+#define needs_api_level(level) ({							\
+	if (seccomp_api_get() < level)							\
+		SKIP(return, "seccomp api level %d < %d", seccomp_api_get(), level);	\
+})
 
 TEST(kcmp)
 {
@@ -863,6 +640,8 @@ void kill_thread_or_group(struct __test_metadata *_metadata,
 
 TEST(KILL_thread)
 {
+	needs_api_level(6);
+
 	int status;
 	pid_t child_pid;
 
@@ -882,6 +661,8 @@ TEST(KILL_thread)
 
 TEST(KILL_process)
 {
+	needs_api_level(6);
+
 	int status;
 	pid_t child_pid;
 
@@ -901,6 +682,8 @@ TEST(KILL_process)
 
 TEST(KILL_unknown)
 {
+	needs_api_level(6);
+
 	int status;
 	pid_t child_pid;
 
@@ -2399,6 +2182,8 @@ TEST(seccomp_syscall_mode_lock)
  */
 TEST(detect_seccomp_filter_flags)
 {
+	needs_api_level(6);
+
 	unsigned int flags[] = { SECCOMP_FILTER_FLAG_TSYNC,
 				 SECCOMP_FILTER_FLAG_LOG,
 				 SECCOMP_FILTER_FLAG_SPEC_ALLOW,
@@ -2863,6 +2648,8 @@ TEST_F(TSYNC, two_siblings_with_one_divergence)
 
 TEST_F(TSYNC, two_siblings_with_one_divergence_no_tid_in_err)
 {
+	needs_api_level(6);
+
 	long ret, flags;
 	void *status;
 
@@ -3272,6 +3059,8 @@ TEST(get_action_avail)
 
 TEST(get_metadata)
 {
+	needs_api_level(4);
+
 	pid_t pid;
 	int pipefd[2];
 	char buf;
@@ -3360,6 +3149,8 @@ static int user_notif_syscall(int nr, unsigned int flags)
 #define USER_NOTIF_MAGIC INT_MAX
 TEST(user_notification_basic)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status, listener;
@@ -3466,6 +3257,8 @@ TEST(user_notification_basic)
 
 TEST(user_notification_with_tsync)
 {
+	needs_api_level(6);
+
 	int ret;
 	unsigned int flags;
 
@@ -3489,6 +3282,8 @@ TEST(user_notification_with_tsync)
 
 TEST(user_notification_kill_in_middle)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int listener;
@@ -3540,6 +3335,8 @@ static void signal_handler(int signal)
 
 TEST(user_notification_signal)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status, listener, sk_pair[2];
@@ -3615,6 +3412,8 @@ TEST(user_notification_signal)
 
 TEST(user_notification_closed_listener)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status, listener;
@@ -3651,6 +3450,8 @@ TEST(user_notification_closed_listener)
  */
 TEST(user_notification_child_pid_ns)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	int status, listener;
 	struct seccomp_notif req = {};
@@ -3692,6 +3493,8 @@ TEST(user_notification_child_pid_ns)
  */
 TEST(user_notification_sibling_pid_ns)
 {
+	needs_api_level(5);
+
 	pid_t pid, pid2;
 	int status, listener;
 	struct seccomp_notif req = {};
@@ -3769,6 +3572,8 @@ TEST(user_notification_sibling_pid_ns)
 
 TEST(user_notification_fault_recv)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	int status, listener;
 	struct seccomp_notif req = {};
@@ -3810,6 +3615,8 @@ TEST(user_notification_fault_recv)
 
 TEST(seccomp_get_notif_sizes)
 {
+	needs_api_level(5);
+
 	struct seccomp_notif_sizes sizes;
 
 	ASSERT_EQ(seccomp(SECCOMP_GET_NOTIF_SIZES, 0, &sizes), 0);
@@ -3819,6 +3626,8 @@ TEST(seccomp_get_notif_sizes)
 
 TEST(user_notification_continue)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status, listener;
@@ -3905,6 +3714,8 @@ skip:
 
 TEST(user_notification_filter_empty)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status;
@@ -3962,6 +3773,8 @@ static void *do_thread(void *data)
 
 TEST(user_notification_filter_empty_threaded)
 {
+	needs_api_level(5);
+
 	pid_t pid;
 	long ret;
 	int status;
@@ -4056,6 +3869,8 @@ int get_next_fd(int prev_fd)
 
 TEST(user_notification_addfd)
 {
+	needs_api_level(7);
+
 	pid_t pid;
 	long ret;
 	int status, listener, memfd, fd, nextfd;
@@ -4218,6 +4033,8 @@ TEST(user_notification_addfd)
 
 TEST(user_notification_addfd_rlimit)
 {
+	needs_api_level(7);
+
 	pid_t pid;
 	long ret;
 	int status, listener, memfd;
@@ -4293,6 +4110,8 @@ TEST(user_notification_addfd_rlimit)
 
 TEST(user_notification_sync)
 {
+	needs_api_level(8);
+
 	struct seccomp_notif req = {};
 	struct seccomp_notif_resp resp = {};
 	int status, listener;
@@ -4457,6 +4276,8 @@ static char get_proc_stat(struct __test_metadata *_metadata, pid_t pid)
 
 TEST(user_notification_fifo)
 {
+	needs_api_level(5);
+
 	struct seccomp_notif_resp resp = {};
 	struct seccomp_notif req = {};
 	int i, status, listener;
@@ -4560,6 +4381,8 @@ static long get_proc_syscall(struct __test_metadata *_metadata, int pid)
 /* Ensure non-fatal signals prior to receive are unmodified */
 TEST(user_notification_wait_killable_pre_notification)
 {
+	needs_api_level(7);
+
 	struct sigaction new_action = {
 		.sa_handler = signal_handler,
 	};
@@ -4630,6 +4453,8 @@ TEST(user_notification_wait_killable_pre_notification)
 /* Ensure non-fatal signals after receive are blocked */
 TEST(user_notification_wait_killable)
 {
+	needs_api_level(7);
+
 	struct sigaction new_action = {
 		.sa_handler = signal_handler,
 	};
@@ -4709,6 +4534,8 @@ TEST(user_notification_wait_killable)
 /* Ensure fatal signals after receive are not blocked */
 TEST(user_notification_wait_killable_fatal)
 {
+	needs_api_level(7);
+
 	struct seccomp_notif req = {};
 	int listener, status;
 	pid_t pid;
